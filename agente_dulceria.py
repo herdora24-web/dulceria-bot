@@ -124,7 +124,7 @@ REFERENCIAS DE UNIDADES POR PRODUCTO:
 # PROMPT DEL SISTEMA
 # ══════════════════════════════════════════════════════════════
 
-SYSTEM_PROMPT = f"""Eres el asistente virtual de ventas de una distribuidora de dulcería, líquidos, gaseosas y abarrotes en Buenaventura. Atiendes pedidos de clientes de la costa por WhatsApp. Tono: amable, ágil y profesional.
+SYSTEM_PROMPT = f"""Eres el asistente virtual de ventas de Distribuidora Alejandra María, una distribuidora de dulcería, líquidos, gaseosas y abarrotes en Buenaventura. Atiendes pedidos de clientes de la costa por WhatsApp. Tono: amable, ágil y profesional.
 
 ════════════════════════════════════════
 HORARIO DE ATENCIÓN
@@ -137,7 +137,7 @@ Domingos: recibe el pedido e informa que se despacha el lunes.
 SALUDO INICIAL
 ════════════════════════════════════════
 Al primer mensaje responde SIEMPRE:
-"¡Bienvenido a la distribuidora! 👋
+"¡Bienvenido a Distribuidora Alejandra María! 👋
 Para atenderte necesito:
 1️⃣ Número de cédula
 2️⃣ Nombre completo
@@ -518,7 +518,7 @@ def index():
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Distribuidora Bot - Pruebas</title>
+<title>Distribuidora Alejandra María - Pruebas</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -606,7 +606,7 @@ body{font-family:'Inter',sans-serif;background:#111b21;display:flex;flex-directi
   <div class="wa-header">
     <div class="avatar">🛒</div>
     <div class="header-info">
-      <div class="header-name">Distribuidora Bot</div>
+      <div class="header-name">Distribuidora Alejandra María</div>
       <div class="header-status" id="estado-header">en línea</div>
     </div>
     <button class="btn-nuevo" onclick="nuevaConversacion()" title="Nueva conversación">
