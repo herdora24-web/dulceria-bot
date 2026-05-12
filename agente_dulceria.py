@@ -1,9 +1,9 @@
 """
 ================================================================
-AGENTE VENDEDOR - DISTRIBUIDORA DULCERÍA
-Servidor Flask para WhatsApp + Claude API + Google Sheets
+AGENTE VENDEDOR - DISTRIBUIDORA DULCERÍA v2
+Flask + Claude API + Google Sheets + Vision + Whisper
 ================================================================
-VARIABLES DE ENTORNO necesarias en Railway:
+VARIABLES DE ENTORNO en Railway:
 ANTHROPIC_API_KEY
 WHATSAPP_TOKEN
 VERIFY_TOKEN
@@ -27,22 +27,15 @@ from google.oauth2.service_account import Credentials
 
 app = Flask(__name__)
 
-# ── Clientes API ──────────────────────────────────────────────
 claude_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-
-# ── Memoria de conversaciones (por número de teléfono) ────────
 conversaciones = {}
-
-# ── Datos del cliente (cédula, nombre, destino, motonave) ─────
-datos_clientes = {}
+catalogo_cache = []
 
 # ══════════════════════════════════════════════════════════════
-# DICCIONARIO DE APODOS DE PRODUCTOS
-# (Nombre como lo pide el cliente → Nombre oficial en catálogo)
+# DICCIONARIO DE APODOS
 # ══════════════════════════════════════════════════════════════
 
 APODOS = {
-    # BOT.docx
     "pin pon polvo acido": "PIN PON MANGO VICHE",
     "pin pon acido": "PIN PON MANGO VICHE",
     "ristra de ponky": "PONKY X8X24TIRA/VAINILLA",
@@ -92,11 +85,9 @@ APODOS = {
     "banana envuelta": "BANANA DULCE RELLENO AMERICANDY",
     "menta saborizada": "MENTA HELADA SURTIDA",
     "rosquilla picante": "RODELIS FLAMING",
-    # BOT2.docx
     "rulita x 24": "PAPITA X 24",
     "rulita": "PAPITA X 24",
     "papa salsa grande": "PAPITA GRANDE",
-    "papita grande": "PAPITA GRANDE",
     "bonbom grande": "BIG BON X 48 UND",
     "confites surtidos": "BANANAS SURTIDAS X 100 UND",
     "bananas surtidas": "BANANAS SURTIDAS X 100 UND",
@@ -115,104 +106,54 @@ APODOS = {
     "madurito": "PRIMAVERA MADURO",
 }
 
-# ══════════════════════════════════════════════════════════════
-# TABLA DE UNIDADES POR PRODUCTO
-# ══════════════════════════════════════════════════════════════
-
 UNIDADES = """
-REFERENCIAS DE UNIDADES POR PRODUCTO (para convertir cuando el cliente pide "una paca", "una caja" o "un display"):
-
-DULCES Y CONFITES:
-- BON BON BUM: 24 und por caja
-- CRAKENA: 24 und por caja
-- FESTIVAL: 24 und por caja
-- DUZ ORIGINAL: 24 und por caja
-- ANISADA: 24 und por caja
-- MORITA: 24 und por caja
-- MAX COCO: 16 und por caja
-- MINIBUM: 16 und por caja
-- BANANAS SURTIDAS X 100: 100 und
-
-CARNES FRÍAS:
-- SALCHICHA VIENA: 48 und por caja
-- JAMONETA GRANDE: 24 und por caja
-- JAMONETA PEQUEÑA: 48 und por caja
-
-LÁCTEOS Y ENLATADOS:
-- ATUN ISABEL: 48 und por caja
-- LECHERA X 100: 96 und por caja
-- PROLECHE X 6: 6 und por display
-
-PAPITAS Y SNACKS:
-- PAPITA X 24 (RULITA): 24 und por paca
-- PAPITA GRANDE (PAPA SALSA GRANDE): 12 und por paca
-- YUPIS JUANCHIS: paca = 6 paquetes de 12 und (72 und total)
-- CHEETOS PICANTE: 40 und por paca
-- DETODITOS y PAPITAS MARGARITAS: paca = 6 paquetes de 12 und (72 und total)
-
-GASEOSAS:
-- POOL X 400 ML: display = 24 und
-- POSTOBON 1.5 LT: display = 12 und
-- GASEOSAS LITRO: display = 12 und
-- POSTOBON PERSONAL: display = 15 und
-
-SERVILLETAS:
-- SERVILLETA X 200: 30 und por caja
-- SERVILLETA X 300: preguntar al asesor
-
-BOMBONES Y CAJAS:
-- Caja de Bombones: preguntar entre CARTON, MEDIA CAJA, UND o DISPLAY
-
-ENVÍO EN BARCO O MOTONAVE:
-- Si el pedido es MENOR a $800.000 el cliente paga la entrada de la motonave
+REFERENCIAS DE UNIDADES POR PRODUCTO:
+- BON BON BUM: 24 und/caja | CRAKENA: 24 | FESTIVAL: 24 | DUZ ORIGINAL: 24
+- ANISADA: 24 | MORITA: 24 | MAX COCO: 16 | MINIBUM: 16
+- SALCHICHA VIENA: 48/caja | JAMONETA GRANDE: 24 | JAMONETA PEQUEÑA: 48
+- ATUN ISABEL: 48/caja | LECHERA X 100: 96 | PROLECHE X 6: 6/display
+- PAPITA X 24 (RULITA): 24/paca | PAPITA GRANDE: 12/paca
+- YUPIS JUANCHIS: paca=72 und | CHEETOS PICANTE: 40/paca
+- DETODITOS/PAPITAS MARGARITAS: paca=72 und
+- POOL X 400 ML: 24/display | POSTOBON 1.5L: 12 | GASEOSAS LITRO: 12 | POSTOBON PERSONAL: 15
+- SERVILLETA X 200: 30/caja
+- Pedido MENOR a $800.000: cliente paga la entrada de la motonave
 """
 
 # ══════════════════════════════════════════════════════════════
 # PROMPT DEL SISTEMA
 # ══════════════════════════════════════════════════════════════
 
-SYSTEM_PROMPT = f"""Eres el asistente virtual de ventas de una distribuidora de dulcería, líquidos, gaseosas y abarrotes ubicada en Buenaventura. Atiendes pedidos de clientes de la costa que llegan principalmente por WhatsApp. Tu tono es amable, ágil y profesional.
+SYSTEM_PROMPT = f"""Eres el asistente virtual de ventas de una distribuidora de dulcería, líquidos, gaseosas y abarrotes en Buenaventura. Atiendes pedidos de clientes de la costa por WhatsApp. Tono: amable, ágil y profesional.
 
 ════════════════════════════════════════
 HORARIO DE ATENCIÓN
 ════════════════════════════════════════
-De lunes a sábado: 8:00 AM a 4:30 PM.
-
-Si un cliente escribe FUERA de ese horario (incluyendo domingos), responde:
-"¡Hola! Por el momento estamos fuera de nuestro horario de atención (8:00 AM – 4:30 PM). Con gusto recibo tu pedido y lo procesamos el siguiente día hábil en la mañana. ¡Cuéntame qué necesitas!"
-
-Si escribe un DOMINGO, recíbele el pedido pero infórmale:
-"Recibí tu pedido. Ten en cuenta que los domingos no despachamos, pero el día lunes a primera hora lo procesamos. Nuestro horario es de lunes a sábado de 8:00 AM a 4:30 PM."
+Lunes a sábado: 8:00 AM a 4:30 PM.
+Fuera de horario: recibe el pedido e informa que se procesa el siguiente día hábil.
+Domingos: recibe el pedido e informa que se despacha el lunes.
 
 ════════════════════════════════════════
 SALUDO INICIAL
 ════════════════════════════════════════
-Al primer mensaje del cliente responde siempre:
+Al primer mensaje responde SIEMPRE:
 "¡Bienvenido a la distribuidora! 👋
-Para atenderte necesito algunos datos:
+Para atenderte necesito:
 1️⃣ Número de cédula
 2️⃣ Nombre completo
-3️⃣ Destino (¿a qué municipio o corregimiento va el pedido?)
-4️⃣ Motonave o barco en que viaja el pedido
+3️⃣ Destino (municipio o corregimiento)
+4️⃣ Motonave o barco
 
-Una vez los tenga, ¡con mucho gusto tomamos tu pedido! 📦"
+¡Con esos datos tomamos tu pedido! 📦"
 
 ════════════════════════════════════════
 IDENTIFICACIÓN DEL CLIENTE
 ════════════════════════════════════════
-Antes de tomar el pedido SIEMPRE debes tener:
-- Número de cédula
-- Nombre completo
-- Destino
-- Motonave / barco
-
-Si el cliente ya está registrado por su número de teléfono, salúdalo por su nombre y confirma si el destino y motonave son los mismos.
+SIEMPRE necesitas antes de tomar el pedido: Cédula, Nombre, Destino, Motonave.
 
 ════════════════════════════════════════
-DICCIONARIO DE APODOS DE PRODUCTOS
+DICCIONARIO DE APODOS
 ════════════════════════════════════════
-Los clientes usan nombres informales. Tradúcelos siempre al nombre oficial:
-
 {json.dumps(APODOS, ensure_ascii=False, indent=2)}
 
 ════════════════════════════════════════
@@ -220,231 +161,259 @@ MANEJO DE UNIDADES
 ════════════════════════════════════════
 {UNIDADES}
 
-Cuando el cliente pida "una paca", "una caja" o "un display", usa la tabla anterior para convertir a unidades exactas. Si el producto no está en la tabla, pregunta al cliente cuántas unidades quiere.
-
 ════════════════════════════════════════
 PROCESAMIENTO DE PEDIDOS
 ════════════════════════════════════════
-1. Identifica al cliente (cédula, nombre, destino, motonave)
-2. Escucha o lee lo que pide (texto, voz o foto de lista)
-3. Traduce apodos al nombre oficial usando el diccionario
-4. Convierte unidades cuando aplique
-5. Si algo no está claro o no está en el inventario, avisa al cliente que lo vas a validar en el sistema o transfiere al asesor
-6. Presenta resumen completo del pedido con productos y cantidades
-7. Confirma el pedido
-
-════════════════════════════════════════
-FOTOS DE LISTAS
-════════════════════════════════════════
-Cuando el cliente envíe una foto de una lista escrita a mano:
-- Lee todos los productos de la imagen
-- Traduce los apodos al nombre oficial
-- Convierte unidades
-- Muestra el listado al cliente para que confirme antes de procesar
+1. Identifica al cliente
+2. Recibe el pedido (texto, voz o foto)
+3. Traduce apodos al nombre oficial
+4. Convierte unidades
+5. Si algo no está claro, avisa que lo validas o transfiere al asesor
+6. Presenta resumen con productos, cantidades y precios
+7. Pide confirmación
 
 ════════════════════════════════════════
 TIEMPO DE ENTREGA
 ════════════════════════════════════════
-El tiempo promedio de entrega es de 2 a 3 horas después de que el cliente haya cancelado su pedido.
-
-Cuando el pedido esté despachado responde:
-"Su pedido ya fue despachado con éxito ✅. En cuanto se tenga el recibido de la lancha se le enviará confirmación."
-
-════════════════════════════════════════
-AMBIGÜEDAD Y PRODUCTOS NO ENCONTRADOS
-════════════════════════════════════════
-Si el cliente pide algo que no reconoces o que no está claro:
-- Opción A: "Voy a validar ese producto en el sistema, espera un momento."
-- Opción B: "No encontré ese producto. ¿Me puedes dar más detalles o te transfiero con un asesor?"
-
-════════════════════════════════════════
-TRANSFERENCIA A ASESOR
-════════════════════════════════════════
-Si el cliente tiene una queja, devolución o consulta que no puedes resolver:
-"Con gusto te comunico con uno de nuestros asesores para ayudarte mejor. En un momento te contactamos."
+2 a 3 horas después de cancelado el pedido.
+Cuando esté despachado: "Su pedido fue despachado ✅. En cuanto se confirme el recibido de la lancha se le avisa."
 
 ════════════════════════════════════════
 CUANDO EL PEDIDO ESTÉ CONFIRMADO
 ════════════════════════════════════════
-Cuando tengas toda la información (datos del cliente + productos + cantidades confirmadas), incluye al FINAL de tu respuesta esta línea especial EXACTAMENTE así, sin espacios extra:
-##PEDIDO_CONFIRMADO##{{\"cedula\":\"[cedula]\",\"nombre\":\"[nombre]\",\"telefono\":\"[telefono]\",\"destino\":\"[destino]\",\"motonave\":\"[motonave]\",\"productos\":\"[lista de productos y cantidades]\",\"observaciones\":\"[observaciones si hay]\"}}##
+Incluye AL FINAL de tu respuesta, en UNA SOLA LÍNEA, EXACTAMENTE esto:
+
+##PEDIDO_CONFIRMADO##{{\"cedula\":\"[cedula]\",\"nombre\":\"[nombre]\",\"telefono\":\"[telefono]\",\"destino\":\"[destino]\",\"motonave\":\"[motonave]\",\"items\":\"[producto1|cantidad1|precio1;producto2|cantidad2|precio2]\",\"observaciones\":\"[obs]\"}}##
+
+Formato del campo items:
+- Cada producto separado por ;
+- Cada ítem: nombreProducto|cantidad|precioUnitario
+- El precio es solo el número sin $ ni puntos
+- Ejemplo: AGUA CIELO X300 X 24|2|13900;BON BON BUM|1|8500
 
 ════════════════════════════════════════
 REGLAS
 ════════════════════════════════════════
 1. NUNCA inventes productos ni precios
-2. SIEMPRE identifica al cliente antes de tomar el pedido
-3. SIEMPRE traduce apodos al nombre oficial
-4. SIEMPRE convierte unidades usando la tabla
-5. Si hay ambigüedad, pregunta o transfiere al asesor
-6. Solo habla de temas de la distribuidora
-7. Sé amable, claro y ágil
+2. SIEMPRE identifica al cliente antes del pedido
+3. SIEMPRE traduce apodos y convierte unidades
+4. Sé amable, claro y ágil
 """
 
 
 # ══════════════════════════════════════════════════════════════
-# GOOGLE SHEETS
+# GOOGLE SHEETS - CONEXIÓN
 # ══════════════════════════════════════════════════════════════
 
 def get_google_client():
-    """Crea el cliente de Google Sheets desde variable de entorno."""
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
     ]
-    # Intentar desde variable de entorno (Railway)
     creds_json = os.environ.get("GOOGLE_CREDENTIALS_JSON")
     if creds_json:
-        creds_dict = json.loads(creds_json)
-        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        creds = Credentials.from_service_account_info(json.loads(creds_json), scopes=scopes)
     else:
-        # Fallback: archivo local (desarrollo)
         creds = Credentials.from_service_account_file("google_credentials.json", scopes=scopes)
     return gspread.authorize(creds)
 
 
-def registrar_pedido_sheets(datos_pedido: dict):
-    """Registra el pedido confirmado en Google Sheets - Hoja Logística."""
+# ══════════════════════════════════════════════════════════════
+# CATÁLOGO - CARGAR Y BUSCAR
+# ══════════════════════════════════════════════════════════════
+
+def cargar_catalogo():
+    """Carga el catálogo desde Google Sheets al iniciar."""
+    global catalogo_cache
     try:
         gc = get_google_client()
         sheet = gc.open_by_key(os.environ.get("GOOGLE_SHEET_ID_DULCERIA"))
+        ws = sheet.worksheet("Catalogo")
+        catalogo_cache = ws.get_all_records()
+        print(f"✅ Catálogo cargado: {len(catalogo_cache)} productos")
+    except Exception as e:
+        print(f"❌ Error cargando catálogo: {e}")
+        catalogo_cache = []
 
-        # Hoja 1: Logística (seguimiento de estados)
-        ws_logistica = sheet.worksheet("Logistica")
+
+def buscar_producto(nombre_buscado: str) -> dict | None:
+    """Busca producto por nombre exacto o parcial."""
+    nombre_buscado = nombre_buscado.upper().strip()
+    for prod in catalogo_cache:
+        if prod.get("NOMBRE", "").upper().strip() == nombre_buscado:
+            return prod
+    for prod in catalogo_cache:
+        if nombre_buscado in prod.get("NOMBRE", "").upper():
+            return prod
+    return None
+
+
+# ══════════════════════════════════════════════════════════════
+# GOOGLE SHEETS - REGISTRAR PEDIDO
+# ══════════════════════════════════════════════════════════════
+
+def registrar_pedido_sheets(datos_pedido: dict):
+    """Registra en Logistica y en Importar_Software."""
+    try:
+        gc = get_google_client()
+        sheet = gc.open_by_key(os.environ.get("GOOGLE_SHEET_ID_DULCERIA"))
         ahora = datetime.now()
-        ws_logistica.append_row([
-            ahora.strftime("%d/%m/%Y"),
-            ahora.strftime("%H:%M"),
+        fecha = ahora.strftime("%d/%m/%Y")
+        hora = ahora.strftime("%H:%M")
+
+        # Parsear items: "nombre|cantidad|precio;..."
+        items = []
+        for item_str in datos_pedido.get("items", "").split(";"):
+            partes = item_str.strip().split("|")
+            if len(partes) < 1 or not partes[0].strip():
+                continue
+            nombre = partes[0].strip()
+            try:
+                cantidad = float(partes[1].strip()) if len(partes) > 1 else 1
+            except:
+                cantidad = 1
+            try:
+                precio = float(partes[2].strip()) if len(partes) > 2 else 0
+            except:
+                precio = 0
+            # Si no hay precio, buscarlo en catálogo
+            prod = buscar_producto(nombre)
+            if precio == 0 and prod:
+                try:
+                    precio = float(prod.get("PRECIO", 0))
+                except:
+                    precio = 0
+            codigo = str(prod.get("CODIGO_BARRAS", "")) if prod else ""
+            items.append({
+                "nombre": nombre,
+                "cantidad": cantidad,
+                "precio": precio,
+                "codigo": codigo,
+                "subtotal": round(cantidad * precio, 0)
+            })
+
+        resumen = " | ".join(
+            [f"{i['nombre']} x{int(i['cantidad'])}" for i in items]
+        ) or datos_pedido.get("productos", "")
+
+        # ── Hoja Logistica ────────────────────────────────────
+        ws_log = sheet.worksheet("Logistica")
+        ws_log.append_row([
+            fecha, hora,
             datos_pedido.get("cedula", ""),
             datos_pedido.get("nombre", ""),
             datos_pedido.get("telefono", ""),
             datos_pedido.get("destino", ""),
             datos_pedido.get("motonave", ""),
-            datos_pedido.get("productos", ""),
+            resumen,
             datos_pedido.get("observaciones", ""),
-            "EMPAQUE"  # Estado inicial
+            "EMPAQUE"
         ])
-        print(f"✅ Pedido registrado en Logística: {datos_pedido.get('nombre')}")
+        print(f"✅ Logistica: {datos_pedido.get('nombre')}")
+
+        # ── Hoja Importar_Software ────────────────────────────
+        ws_fact = sheet.worksheet("Importar_Software")
+        for item in items:
+            ws_fact.append_row([
+                item["codigo"],     # Referencia o codigo de barras
+                item["nombre"],     # Nombre
+                item["precio"],     # Precio Unitario
+                item["cantidad"],   # Cantidad
+                0,                  # Descuento
+                0,                  # Impuesto
+                item["subtotal"],   # SubTotal (No modificar)
+                0,                  # Estampilla
+                0,                  # Impoconsumo
+                item["subtotal"],   # Total (No modificar)
+                ""                  # id_plan_cuenta
+            ])
+        print(f"✅ Importar_Software: {len(items)} líneas")
 
     except Exception as e:
-        print(f"❌ Error al registrar en Sheets: {e}")
+        print(f"❌ Error registrando pedido: {e}")
 
+
+# ══════════════════════════════════════════════════════════════
+# EXTRAER Y LIMPIAR PEDIDO
+# ══════════════════════════════════════════════════════════════
 
 def extraer_pedido_confirmado(texto: str) -> dict | None:
-    """Busca el marcador de pedido confirmado en la respuesta de Claude."""
     if "##PEDIDO_CONFIRMADO##" in texto:
         try:
             inicio = texto.index("##PEDIDO_CONFIRMADO##") + len("##PEDIDO_CONFIRMADO##")
             fin = texto.index("##", inicio)
-            json_str = texto[inicio:fin]
-            return json.loads(json_str)
+            return json.loads(texto[inicio:fin])
         except Exception as e:
             print(f"Error extrayendo pedido: {e}")
     return None
 
 
 def limpiar_respuesta(texto: str) -> str:
-    """Elimina el marcador técnico antes de enviar al cliente."""
     if "##PEDIDO_CONFIRMADO##" in texto:
-        inicio = texto.index("##PEDIDO_CONFIRMADO##")
-        texto = texto[:inicio].strip()
+        texto = texto[:texto.index("##PEDIDO_CONFIRMADO##")].strip()
     return texto
 
 
 # ══════════════════════════════════════════════════════════════
-# TRANSCRIPCIÓN DE NOTAS DE VOZ (Whisper)
+# WHISPER - TRANSCRIBIR AUDIO
 # ══════════════════════════════════════════════════════════════
 
 def transcribir_audio(audio_id: str) -> str | None:
-    """Descarga y transcribe una nota de voz de WhatsApp con Whisper."""
     try:
         token = os.environ.get("WHATSAPP_TOKEN")
         headers = {"Authorization": f"Bearer {token}"}
-
         url_info = requests.get(
-            f"https://graph.facebook.com/v18.0/{audio_id}",
-            headers=headers
+            f"https://graph.facebook.com/v18.0/{audio_id}", headers=headers
         ).json()
-        audio_url = url_info.get("url")
-
-        audio_resp = requests.get(audio_url, headers=headers)
-
+        audio_resp = requests.get(url_info.get("url"), headers=headers)
         with tempfile.NamedTemporaryFile(suffix=".ogg", delete=False) as f:
             f.write(audio_resp.content)
             temp_path = f.name
-
         from openai import OpenAI
-        openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-        with open(temp_path, "rb") as audio_file:
-            transcript = openai_client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file,
-                language="es"
+        oc = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        with open(temp_path, "rb") as af:
+            transcript = oc.audio.transcriptions.create(
+                model="whisper-1", file=af, language="es"
             )
         os.unlink(temp_path)
         return transcript.text
-
     except Exception as e:
-        print(f"Error transcribiendo audio: {e}")
+        print(f"Error audio: {e}")
         return None
 
 
 # ══════════════════════════════════════════════════════════════
-# LEER IMAGEN DE LISTA (Claude Vision)
+# CLAUDE VISION - LEER IMAGEN
 # ══════════════════════════════════════════════════════════════
 
 def leer_imagen_lista(image_id: str) -> str:
-    """Descarga la imagen de WhatsApp y la envía a Claude Vision para leer la lista."""
     try:
         token = os.environ.get("WHATSAPP_TOKEN")
         headers = {"Authorization": f"Bearer {token}"}
-
-        # Obtener URL de la imagen
         url_info = requests.get(
-            f"https://graph.facebook.com/v18.0/{image_id}",
-            headers=headers
+            f"https://graph.facebook.com/v18.0/{image_id}", headers=headers
         ).json()
-        image_url = url_info.get("url")
-
-        # Descargar la imagen
-        img_resp = requests.get(image_url, headers=headers)
+        img_resp = requests.get(url_info.get("url"), headers=headers)
         image_data = base64.standard_b64encode(img_resp.content).decode("utf-8")
         media_type = img_resp.headers.get("Content-Type", "image/jpeg")
-
-        # Enviar a Claude Vision para leer la lista
         response = claude_client.messages.create(
             model="claude-sonnet-4-5",
             max_tokens=1000,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": image_data,
-                        },
-                    },
-                    {
-                        "type": "text",
-                        "text": (
-                            "Esta es una lista de pedido de un cliente de una distribuidora de dulcería en Colombia. "
-                            "Lee todos los productos que aparecen en la imagen, incluyendo cantidades si las hay. "
-                            "Escríbelos tal como aparecen, uno por línea. "
-                            "Si hay texto que no puedes leer claramente, escribe [ilegible] en ese lugar. "
-                            "Solo devuelve la lista de productos, sin comentarios adicionales."
-                        )
-                    }
-                ],
-            }]
+            messages=[{"role": "user", "content": [
+                {"type": "image", "source": {
+                    "type": "base64", "media_type": media_type, "data": image_data
+                }},
+                {"type": "text", "text": (
+                    "Lista de pedido de una distribuidora de dulcería en Colombia. "
+                    "Lee todos los productos con cantidades, uno por línea. "
+                    "Texto ilegible: escribe [ilegible]. Solo devuelve la lista."
+                )}
+            ]}]
         )
-        lista_leida = response.content[0].text
-        return f"[Lista leída de la imagen]\n{lista_leida}"
-
+        return f"[Lista leída de imagen]\n{response.content[0].text}"
     except Exception as e:
-        print(f"Error leyendo imagen: {e}")
-        return "[El cliente envió una foto de lista pero no pude leerla. Por favor pide que la escriba.]"
+        print(f"Error imagen: {e}")
+        return "[No pude leer la foto. Pide al cliente que escriba el pedido.]"
 
 
 # ══════════════════════════════════════════════════════════════
@@ -452,61 +421,39 @@ def leer_imagen_lista(image_id: str) -> str:
 # ══════════════════════════════════════════════════════════════
 
 def procesar_con_claude(numero: str, mensaje_usuario: str) -> str:
-    """Envía el mensaje a Claude manteniendo el historial de conversación."""
     if numero not in conversaciones:
         conversaciones[numero] = []
-
-    conversaciones[numero].append({
-        "role": "user",
-        "content": mensaje_usuario
-    })
-
-    # Mantener máximo 30 turnos para controlar costos
+    conversaciones[numero].append({"role": "user", "content": mensaje_usuario})
     historial = conversaciones[numero][-30:]
-
     respuesta = claude_client.messages.create(
         model="claude-sonnet-4-5",
         max_tokens=1500,
         system=SYSTEM_PROMPT,
         messages=historial
     )
-
-    texto_respuesta = respuesta.content[0].text
-
-    conversaciones[numero].append({
-        "role": "assistant",
-        "content": texto_respuesta
-    })
-
-    return texto_respuesta
+    texto = respuesta.content[0].text
+    conversaciones[numero].append({"role": "assistant", "content": texto})
+    return texto
 
 
 # ══════════════════════════════════════════════════════════════
-# WHATSAPP - ENVIAR MENSAJE
+# WHATSAPP - ENVIAR
 # ══════════════════════════════════════════════════════════════
 
 def enviar_whatsapp(numero: str, mensaje: str):
-    """Envía un mensaje de texto por WhatsApp."""
     token = os.environ.get("WHATSAPP_TOKEN")
     phone_id = os.environ.get("PHONE_NUMBER_ID")
-
-    url = f"https://graph.facebook.com/v18.0/{phone_id}/messages"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "messaging_product": "whatsapp",
-        "to": numero,
-        "type": "text",
-        "text": {"body": mensaje}
-    }
-    resp = requests.post(url, headers=headers, json=data)
-    print(f"WhatsApp send → {resp.status_code}: {resp.text}")
+    resp = requests.post(
+        f"https://graph.facebook.com/v18.0/{phone_id}/messages",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json={"messaging_product": "whatsapp", "to": numero,
+              "type": "text", "text": {"body": mensaje}}
+    )
+    print(f"WA → {resp.status_code}")
 
 
 # ══════════════════════════════════════════════════════════════
-# WEBHOOK - VERIFICACIÓN
+# WEBHOOKS
 # ══════════════════════════════════════════════════════════════
 
 @app.route("/webhook", methods=["GET"])
@@ -514,30 +461,18 @@ def verificar_webhook():
     mode = request.args.get("hub.mode")
     token = request.args.get("hub.verify_token")
     challenge = request.args.get("hub.challenge")
-
     if mode == "subscribe" and token == os.environ.get("VERIFY_TOKEN"):
-        print("✅ Webhook verificado correctamente")
         return challenge, 200
-    else:
-        return "Token incorrecto", 403
+    return "Token incorrecto", 403
 
-
-# ══════════════════════════════════════════════════════════════
-# WEBHOOK - RECIBIR MENSAJES
-# ══════════════════════════════════════════════════════════════
 
 @app.route("/webhook", methods=["POST"])
 def recibir_mensaje():
-    """Recibe todos los mensajes entrantes de WhatsApp."""
     try:
         data = request.get_json()
-        print(f"Mensaje recibido: {json.dumps(data, indent=2)}")
-
         entry = data.get("entry", [{}])[0]
         changes = entry.get("changes", [{}])[0]
-        value = changes.get("value", {})
-        messages = value.get("messages", [])
-
+        messages = changes.get("value", {}).get("messages", [])
         if not messages:
             return jsonify({"status": "ok"}), 200
 
@@ -545,126 +480,110 @@ def recibir_mensaje():
         numero = msg.get("from")
         tipo = msg.get("type")
 
-        # ── Procesar según tipo de mensaje ────────────────────
         if tipo == "text":
             texto_cliente = msg["text"]["body"]
-
         elif tipo == "audio":
-            audio_id = msg["audio"]["id"]
-            texto_cliente = transcribir_audio(audio_id)
+            texto_cliente = transcribir_audio(msg["audio"]["id"])
             if not texto_cliente:
-                enviar_whatsapp(numero, "No pude escuchar bien tu nota de voz 😅 ¿Puedes escribir el pedido?")
+                enviar_whatsapp(numero, "No pude escuchar tu nota de voz 😅 ¿Puedes escribirlo?")
                 return jsonify({"status": "ok"}), 200
-
         elif tipo == "image":
-            # Intentar leer lista de la imagen con Claude Vision
-            image_id = msg["image"]["id"]
-            texto_cliente = leer_imagen_lista(image_id)
-
+            texto_cliente = leer_imagen_lista(msg["image"]["id"])
         else:
-            enviar_whatsapp(numero, "Por ahora recibo mensajes de texto, notas de voz y fotos de listas 📝")
+            enviar_whatsapp(numero, "Recibo texto, notas de voz y fotos de listas 📝")
             return jsonify({"status": "ok"}), 200
 
-        # ── Enviar a Claude ───────────────────────────────────
         respuesta_claude = procesar_con_claude(numero, texto_cliente)
-
-        # ── Verificar si hay pedido confirmado ────────────────
         pedido = extraer_pedido_confirmado(respuesta_claude)
         if pedido:
             pedido["telefono"] = numero
             registrar_pedido_sheets(pedido)
 
-        # ── Limpiar y enviar respuesta al cliente ─────────────
-        respuesta_limpia = limpiar_respuesta(respuesta_claude)
-        enviar_whatsapp(numero, respuesta_limpia)
-
+        enviar_whatsapp(numero, limpiar_respuesta(respuesta_claude))
         return jsonify({"status": "ok"}), 200
 
     except Exception as e:
-        print(f"❌ Error en webhook: {e}")
+        print(f"❌ Error webhook: {e}")
         return jsonify({"status": "error", "detail": str(e)}), 500
 
 
 # ══════════════════════════════════════════════════════════════
-# INTERFAZ WEB DE PRUEBAS
+# INTERFAZ WEB
 # ══════════════════════════════════════════════════════════════
 
 @app.route("/")
 def index():
-    return """
-    <!DOCTYPE html>
-    <html lang="es">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Agente Dulcería - Pruebas</title>
-        <style>
-            body { font-family: Arial, sans-serif; max-width: 700px; margin: 40px auto; padding: 20px; background: #f5f5f5; }
-            h1 { color: #333; }
-            #chat { background: white; border-radius: 12px; padding: 20px; height: 400px; overflow-y: auto; margin-bottom: 16px; border: 1px solid #ddd; }
-            .msg-user { text-align: right; margin: 8px 0; }
-            .msg-bot  { text-align: left;  margin: 8px 0; }
-            .burbuja { display: inline-block; padding: 10px 14px; border-radius: 18px; max-width: 75%; white-space: pre-wrap; }
-            .msg-user .burbuja { background: #25D366; color: white; }
-            .msg-bot  .burbuja { background: #e9e9e9; color: #222; }
-            #input-area { display: flex; gap: 10px; }
-            #msg { flex: 1; padding: 12px; border-radius: 8px; border: 1px solid #ccc; font-size: 15px; }
-            button { padding: 12px 20px; background: #25D366; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 15px; }
-            button:hover { background: #1da851; }
-        </style>
-    </head>
-    <body>
-        <h1>🛒 Agente Vendedor - Distribuidora</h1>
-        <p>Interfaz de pruebas (simula WhatsApp)</p>
-        <div id="chat"></div>
-        <div id="input-area">
-            <input id="msg" type="text" placeholder="Escribe un mensaje..." onkeydown="if(event.key==='Enter') enviar()">
-            <button onclick="enviar()">Enviar</button>
-        </div>
-        <script>
-            const numero = "test_web_" + Math.random().toString(36).slice(2, 8);
-            async function enviar() {
-                const input = document.getElementById("msg");
-                const texto = input.value.trim();
-                if (!texto) return;
-                agregar(texto, "user");
-                input.value = "";
-                const resp = await fetch("/test", {
-                    method: "POST",
-                    headers: {"Content-Type": "application/json"},
-                    body: JSON.stringify({numero, mensaje: texto})
-                });
-                const data = await resp.json();
-                agregar(data.respuesta, "bot");
-            }
-            function agregar(texto, tipo) {
-                const chat = document.getElementById("chat");
-                const div = document.createElement("div");
-                div.className = "msg-" + tipo;
-                div.innerHTML = '<span class="burbuja">' + texto + '</span>';
-                chat.appendChild(div);
-                chat.scrollTop = chat.scrollHeight;
-            }
-        </script>
-    </body>
-    </html>
-    """
+    return """<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Agente Dulcería v2</title>
+<style>
+body{font-family:Arial,sans-serif;max-width:700px;margin:40px auto;padding:20px;background:#f5f5f5}
+h1{color:#333}p{color:#666}
+#chat{background:white;border-radius:12px;padding:20px;height:420px;overflow-y:auto;margin-bottom:16px;border:1px solid #ddd}
+.msg-user{text-align:right;margin:8px 0}.msg-bot{text-align:left;margin:8px 0}
+.burbuja{display:inline-block;padding:10px 14px;border-radius:18px;max-width:75%;white-space:pre-wrap}
+.msg-user .burbuja{background:#25D366;color:white}.msg-bot .burbuja{background:#e9e9e9;color:#222}
+#input-area{display:flex;gap:10px}
+#msg{flex:1;padding:12px;border-radius:8px;border:1px solid #ccc;font-size:15px}
+button{padding:12px 20px;background:#25D366;color:white;border:none;border-radius:8px;cursor:pointer;font-size:15px}
+button:hover{background:#1da851}
+</style></head><body>
+<h1>🛒 Agente Vendedor - Distribuidora v2</h1>
+<p>Catálogo en vivo · Registro automático en Logistica e Importar_Software</p>
+<div id="chat"></div>
+<div id="input-area">
+  <input id="msg" type="text" placeholder="Escribe un mensaje..." onkeydown="if(event.key==='Enter') enviar()">
+  <button onclick="enviar()">Enviar</button>
+</div>
+<script>
+const numero="test_web_"+Math.random().toString(36).slice(2,8);
+async function enviar(){
+  const input=document.getElementById("msg");
+  const texto=input.value.trim(); if(!texto) return;
+  agregar(texto,"user"); input.value="";
+  const resp=await fetch("/test",{method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({numero,mensaje:texto})});
+  const data=await resp.json();
+  agregar(data.respuesta,"bot");
+}
+function agregar(texto,tipo){
+  const chat=document.getElementById("chat");
+  const div=document.createElement("div"); div.className="msg-"+tipo;
+  div.innerHTML='<span class="burbuja">'+texto+'</span>';
+  chat.appendChild(div); chat.scrollTop=chat.scrollHeight;
+}
+</script></body></html>"""
 
 
 @app.route("/test", methods=["POST"])
 def test_bot():
-    """Endpoint para la interfaz web de pruebas."""
     data = request.get_json()
-    numero = data.get("numero", "test")
-    mensaje = data.get("mensaje", "")
-    respuesta = procesar_con_claude(numero, mensaje)
-    respuesta_limpia = limpiar_respuesta(respuesta)
-    return jsonify({"respuesta": respuesta_limpia})
+    respuesta = procesar_con_claude(data.get("numero", "test"), data.get("mensaje", ""))
+    return jsonify({"respuesta": limpiar_respuesta(respuesta)})
+
+
+@app.route("/catalogo/buscar")
+def buscar_en_catalogo():
+    """Buscar producto manualmente: /catalogo/buscar?q=bon+bon+bum"""
+    resultado = buscar_producto(request.args.get("q", ""))
+    if resultado:
+        return jsonify({"encontrado": True, "producto": resultado})
+    return jsonify({"encontrado": False})
+
+
+@app.route("/catalogo/total")
+def total_catalogo():
+    """Verificar cuántos productos están cargados."""
+    return jsonify({"productos_cargados": len(catalogo_cache)})
 
 
 # ══════════════════════════════════════════════════════════════
-# INICIO
+# INICIO - carga el catálogo al arrancar
 # ══════════════════════════════════════════════════════════════
+
+with app.app_context():
+    cargar_catalogo()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
