@@ -514,46 +514,353 @@ def recibir_mensaje():
 @app.route("/")
 def index():
     return """<!DOCTYPE html>
-<html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Agente Dulcería v2</title>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Distribuidora Bot - Pruebas</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-body{font-family:Arial,sans-serif;max-width:700px;margin:40px auto;padding:20px;background:#f5f5f5}
-h1{color:#333}p{color:#666}
-#chat{background:white;border-radius:12px;padding:20px;height:420px;overflow-y:auto;margin-bottom:16px;border:1px solid #ddd}
-.msg-user{text-align:right;margin:8px 0}.msg-bot{text-align:left;margin:8px 0}
-.burbuja{display:inline-block;padding:10px 14px;border-radius:18px;max-width:75%;white-space:pre-wrap}
-.msg-user .burbuja{background:#25D366;color:white}.msg-bot .burbuja{background:#e9e9e9;color:#222}
-#input-area{display:flex;gap:10px}
-#msg{flex:1;padding:12px;border-radius:8px;border:1px solid #ccc;font-size:15px}
-button{padding:12px 20px;background:#25D366;color:white;border:none;border-radius:8px;cursor:pointer;font-size:15px}
-button:hover{background:#1da851}
-</style></head><body>
-<h1>🛒 Agente Vendedor - Distribuidora v2</h1>
-<p>Catálogo en vivo · Registro automático en Logistica e Importar_Software</p>
-<div id="chat"></div>
-<div id="input-area">
-  <input id="msg" type="text" placeholder="Escribe un mensaje..." onkeydown="if(event.key==='Enter') enviar()">
-  <button onclick="enviar()">Enviar</button>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',sans-serif;background:#111b21;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:16px}
+
+/* Contenedor tipo teléfono */
+.phone{width:100%;max-width:420px;height:92vh;max-height:760px;background:#111b21;border-radius:24px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 32px 80px rgba(0,0,0,0.6)}
+
+/* Header estilo WhatsApp */
+.wa-header{background:#202c33;padding:10px 16px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #2a3942}
+.avatar{width:40px;height:40px;border-radius:50%;background:#25d366;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.header-info{flex:1}
+.header-name{color:#e9edef;font-size:15px;font-weight:600;line-height:1.2}
+.header-status{color:#8696a0;font-size:12px}
+.btn-nuevo{background:none;border:none;cursor:pointer;padding:6px;border-radius:50%;color:#8696a0;display:flex;align-items:center;justify-content:center;transition:background .2s}
+.btn-nuevo:hover{background:#2a3942;color:#e9edef}
+.btn-nuevo svg{width:20px;height:20px}
+
+/* Fondo del chat con patrón */
+.chat-bg{flex:1;overflow-y:auto;padding:12px 16px;background:#0b141a;background-image:url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23182229' fill-opacity='0.6'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")}
+.chat-bg::-webkit-scrollbar{width:4px}
+.chat-bg::-webkit-scrollbar-thumb{background:#2a3942;border-radius:4px}
+
+/* Burbujas */
+.msg{display:flex;margin-bottom:4px}
+.msg.user{justify-content:flex-end}
+.msg.bot{justify-content:flex-start}
+.burbuja{max-width:78%;padding:8px 12px 6px;border-radius:8px;font-size:14px;line-height:1.5;white-space:pre-wrap;word-break:break-word;position:relative}
+.msg.user .burbuja{background:#005c4b;color:#e9edef;border-top-right-radius:2px}
+.msg.bot .burbuja{background:#202c33;color:#e9edef;border-top-left-radius:2px}
+.hora{font-size:10px;color:#8696a0;text-align:right;margin-top:2px;display:block}
+.msg.bot .hora{text-align:left}
+
+/* Indicador de escritura */
+.typing{display:none;align-items:center;gap:4px;padding:8px 12px;background:#202c33;border-radius:8px;width:fit-content;margin-bottom:4px}
+.typing.visible{display:flex}
+.dot{width:7px;height:7px;border-radius:50%;background:#8696a0;animation:bounce 1.2s infinite}
+.dot:nth-child(2){animation-delay:.2s}
+.dot:nth-child(3){animation-delay:.4s}
+@keyframes bounce{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-6px)}}
+
+/* Fecha separadora */
+.fecha-sep{text-align:center;margin:12px 0}
+.fecha-sep span{background:#182229;color:#8696a0;font-size:11px;padding:4px 12px;border-radius:12px}
+
+/* Barra inferior */
+.input-bar{background:#202c33;padding:8px 12px;display:flex;align-items:flex-end;gap:8px}
+.input-wrap{flex:1;background:#2a3942;border-radius:24px;display:flex;align-items:center;padding:8px 14px;gap:8px;min-height:44px}
+#msg{flex:1;background:none;border:none;outline:none;color:#e9edef;font-size:15px;font-family:'Inter',sans-serif;resize:none;max-height:100px;line-height:1.4}
+#msg::placeholder{color:#8696a0}
+
+.icon-btn{background:none;border:none;cursor:pointer;color:#8696a0;display:flex;align-items:center;justify-content:center;padding:2px;transition:color .2s;flex-shrink:0}
+.icon-btn:hover{color:#e9edef}
+.icon-btn svg{width:22px;height:22px}
+
+.send-btn{width:44px;height:44px;border-radius:50%;background:#00a884;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .2s;box-shadow:0 2px 8px rgba(0,168,132,0.3)}
+.send-btn:hover{background:#06cf9c}
+.send-btn svg{width:20px;height:20px;fill:white}
+
+/* Grabando */
+.rec-bar{display:none;background:#202c33;padding:8px 16px;align-items:center;gap:12px}
+.rec-bar.visible{display:flex}
+.rec-dot{width:10px;height:10px;border-radius:50%;background:#f44336;animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.rec-time{color:#e9edef;font-size:14px;flex:1}
+.rec-cancel{color:#8696a0;font-size:13px;cursor:pointer;padding:4px 8px}
+.rec-cancel:hover{color:#e9edef}
+.rec-send{background:#00a884;color:white;border:none;border-radius:20px;padding:6px 16px;font-size:13px;cursor:pointer;font-family:'Inter',sans-serif}
+
+/* Foto preview */
+.foto-preview{display:none;position:relative;margin-bottom:8px}
+.foto-preview.visible{display:block}
+.foto-preview img{max-width:200px;border-radius:8px;border:2px solid #25d366}
+.foto-preview .quitar{position:absolute;top:-6px;right:-6px;background:#f44336;color:white;border:none;border-radius:50%;width:20px;height:20px;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center}
+
+/* Input file oculto */
+#file-input{display:none}
+</style>
+</head>
+<body>
+
+<div class="phone">
+
+  <!-- Header -->
+  <div class="wa-header">
+    <div class="avatar">🛒</div>
+    <div class="header-info">
+      <div class="header-name">Distribuidora Bot</div>
+      <div class="header-status" id="estado-header">en línea</div>
+    </div>
+    <button class="btn-nuevo" onclick="nuevaConversacion()" title="Nueva conversación">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 5v14M5 12h14"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Chat -->
+  <div class="chat-bg" id="chat">
+    <div class="fecha-sep"><span>HOY</span></div>
+    <div class="typing" id="typing">
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+    </div>
+  </div>
+
+  <!-- Input bar -->
+  <div class="input-bar" id="input-bar">
+    <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+      <!-- Preview foto -->
+      <div class="foto-preview" id="foto-preview">
+        <img id="foto-img" src="" alt="foto">
+        <button class="quitar" onclick="quitarFoto()">✕</button>
+      </div>
+      <div class="input-wrap">
+        <button class="icon-btn" onclick="abrirCamara()" title="Enviar foto de lista">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+            <circle cx="12" cy="13" r="4"/>
+          </svg>
+        </button>
+        <textarea id="msg" rows="1" placeholder="Escribe un mensaje..." oninput="autoResize(this)" onkeydown="teclaEnter(event)"></textarea>
+        <button class="icon-btn" id="btn-mic" onclick="toggleMic()" title="Nota de voz">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+    <button class="send-btn" onclick="enviar()" title="Enviar">
+      <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg>
+    </button>
+  </div>
+
+  <!-- Barra de grabación -->
+  <div class="rec-bar" id="rec-bar">
+    <div class="rec-dot"></div>
+    <span class="rec-time" id="rec-time">0:00</span>
+    <span class="rec-cancel" onclick="cancelarGrabacion()">Cancelar</span>
+    <button class="rec-send" onclick="enviarAudio()">Enviar 🎤</button>
+  </div>
+
 </div>
+
+<!-- Input de archivo oculto -->
+<input type="file" id="file-input" accept="image/*" capture="environment" onchange="seleccionarFoto(event)">
+
 <script>
-const numero="test_web_"+Math.random().toString(36).slice(2,8);
+let numero = "test_web_" + Math.random().toString(36).slice(2,8);
+let mediaRecorder = null;
+let audioChunks = [];
+let recTimer = null;
+let recSecs = 0;
+let fotoBase64 = null;
+let grabando = false;
+
+// ── Auto-resize textarea ──────────────────────────────────────
+function autoResize(el){
+  el.style.height='auto';
+  el.style.height=Math.min(el.scrollHeight,100)+'px';
+}
+
+function teclaEnter(e){
+  if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); enviar(); }
+}
+
+// ── Hora actual ───────────────────────────────────────────────
+function horaActual(){
+  return new Date().toLocaleTimeString('es-CO',{hour:'2-digit',minute:'2-digit'});
+}
+
+// ── Agregar burbuja ───────────────────────────────────────────
+function agregar(texto, tipo, esImagen=false){
+  const chat = document.getElementById("chat");
+  const typing = document.getElementById("typing");
+  const div = document.createElement("div");
+  div.className = "msg " + tipo;
+  let contenido = '';
+  if(esImagen){
+    contenido = `<img src="${texto}" style="max-width:200px;border-radius:8px;display:block">`;
+  } else {
+    contenido = texto.replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+  div.innerHTML = `<div class="burbuja">${contenido}<span class="hora">${horaActual()}</span></div>`;
+  chat.insertBefore(div, typing);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+// ── Mostrar/ocultar typing ────────────────────────────────────
+function setTyping(visible){
+  const t = document.getElementById("typing");
+  const h = document.getElementById("estado-header");
+  t.classList.toggle("visible", visible);
+  h.textContent = visible ? "escribiendo..." : "en línea";
+  if(visible) document.getElementById("chat").scrollTop = 99999;
+}
+
+// ── Enviar texto ──────────────────────────────────────────────
 async function enviar(){
-  const input=document.getElementById("msg");
-  const texto=input.value.trim(); if(!texto) return;
-  agregar(texto,"user"); input.value="";
-  const resp=await fetch("/test",{method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({numero,mensaje:texto})});
-  const data=await resp.json();
-  agregar(data.respuesta,"bot");
+  const input = document.getElementById("msg");
+  const texto = input.value.trim();
+
+  // Si hay foto adjunta
+  if(fotoBase64){
+    agregar(fotoBase64, "user", true);
+    input.value=""; input.style.height='auto';
+    await enviarAlBot("[El usuario envió una foto de lista de pedido]");
+    quitarFoto();
+    return;
+  }
+
+  if(!texto) return;
+  agregar(texto, "user");
+  input.value=""; input.style.height='auto';
+  await enviarAlBot(texto);
 }
-function agregar(texto,tipo){
-  const chat=document.getElementById("chat");
-  const div=document.createElement("div"); div.className="msg-"+tipo;
-  div.innerHTML='<span class="burbuja">'+texto+'</span>';
-  chat.appendChild(div); chat.scrollTop=chat.scrollHeight;
+
+async function enviarAlBot(mensaje){
+  setTyping(true);
+  try {
+    const resp = await fetch("/test", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({numero, mensaje})
+    });
+    const data = await resp.json();
+    setTyping(false);
+    agregar(data.respuesta, "bot");
+  } catch(e){
+    setTyping(false);
+    agregar("Error de conexión. Intenta de nuevo.", "bot");
+  }
 }
-</script></body></html>"""
+
+// ── Nueva conversación ────────────────────────────────────────
+function nuevaConversacion(){
+  if(!confirm("¿Iniciar una nueva conversación?")) return;
+  numero = "test_web_" + Math.random().toString(36).slice(2,8);
+  const chat = document.getElementById("chat");
+  chat.innerHTML = `
+    <div class="fecha-sep"><span>HOY</span></div>
+    <div class="typing" id="typing">
+      <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+    </div>`;
+  quitarFoto();
+}
+
+// ── Cámara / foto ─────────────────────────────────────────────
+function abrirCamara(){
+  document.getElementById("file-input").click();
+}
+
+function seleccionarFoto(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev){
+    fotoBase64 = ev.target.result;
+    const preview = document.getElementById("foto-preview");
+    document.getElementById("foto-img").src = fotoBase64;
+    preview.classList.add("visible");
+  };
+  reader.readAsDataURL(file);
+  e.target.value = "";
+}
+
+function quitarFoto(){
+  fotoBase64 = null;
+  document.getElementById("foto-preview").classList.remove("visible");
+  document.getElementById("foto-img").src = "";
+}
+
+// ── Micrófono / grabación ─────────────────────────────────────
+async function toggleMic(){
+  if(!grabando) await iniciarGrabacion();
+}
+
+async function iniciarGrabacion(){
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    audioChunks = [];
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+    mediaRecorder.start();
+    grabando = true;
+    recSecs = 0;
+    document.getElementById("input-bar").style.display = "none";
+    document.getElementById("rec-bar").classList.add("visible");
+    recTimer = setInterval(()=>{
+      recSecs++;
+      const m = Math.floor(recSecs/60);
+      const s = recSecs%60;
+      document.getElementById("rec-time").textContent = m+":"+(s<10?"0":"")+s;
+    }, 1000);
+  } catch(e){
+    alert("No se pudo acceder al micrófono. Verifica los permisos del navegador.");
+  }
+}
+
+function cancelarGrabacion(){
+  if(mediaRecorder){ mediaRecorder.stop(); mediaRecorder.stream.getTracks().forEach(t=>t.stop()); }
+  clearInterval(recTimer);
+  grabando = false;
+  document.getElementById("rec-bar").classList.remove("visible");
+  document.getElementById("input-bar").style.display = "flex";
+}
+
+async function enviarAudio(){
+  if(!mediaRecorder) return;
+  mediaRecorder.stop();
+  mediaRecorder.stream.getTracks().forEach(t=>t.stop());
+  clearInterval(recTimer);
+  grabando = false;
+
+  await new Promise(r => setTimeout(r, 200));
+
+  const blob = new Blob(audioChunks, {type:'audio/webm'});
+  const reader = new FileReader();
+  reader.onload = async function(ev){
+    // Mostrar burbuja de audio
+    const chat = document.getElementById("chat");
+    const typing = document.getElementById("typing");
+    const div = document.createElement("div");
+    div.className = "msg user";
+    div.innerHTML = `<div class="burbuja">
+      🎤 <em style="color:#a8d5c2;font-size:13px">Nota de voz (${document.getElementById("rec-time").textContent})</em>
+      <span class="hora">${horaActual()}</span>
+    </div>`;
+    chat.insertBefore(div, typing);
+    chat.scrollTop = chat.scrollHeight;
+
+    document.getElementById("rec-bar").classList.remove("visible");
+    document.getElementById("input-bar").style.display = "flex";
+
+    // Enviar al bot como texto simulado
+    await enviarAlBot("[El usuario envió una nota de voz con su pedido]");
+  };
+  reader.readAsDataURL(blob);
+}
+</script>
+</body>
+</html>"""
 
 
 @app.route("/test", methods=["POST"])
