@@ -413,7 +413,7 @@ def leer_imagen_lista(image_id: str) -> str:
 
         # Enviar a Claude Vision para leer la lista
         response = claude_client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-5",
             max_tokens=1000,
             messages=[{
                 "role": "user",
@@ -465,7 +465,7 @@ def procesar_con_claude(numero: str, mensaje_usuario: str) -> str:
     historial = conversaciones[numero][-30:]
 
     respuesta = claude_client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-5",
         max_tokens=1500,
         system=SYSTEM_PROMPT,
         messages=historial
