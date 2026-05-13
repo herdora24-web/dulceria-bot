@@ -476,6 +476,37 @@ def leer_imagen_lista(image_id: str) -> str:
 # CLAUDE - PROCESAR MENSAJE
 # ══════════════════════════════════════════════════════════════
 
+def extraer_pedido_del_historial(numero: str) -> dict | None:
+    """Plan B: reconstruye el pedido leyendo el historial si Claude no generó el marcador."""
+    historial = conversaciones.get(numero, [])
+    if len(historial) < 4:
+        return None
+    try:
+        contexto = "\n".join([
+            f"{'Cliente' if m['role']=='user' else 'Bot'}: {m['content'][:300]}"
+            for m in historial[-20:]
+        ])
+        respuesta = claude_client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=600,
+            messages=[{"role": "user", "content": (
+                "Analiza esta conversación de ventas y extrae el pedido SI el cliente ya eligió método de pago.\n"
+                "Si NO hay pedido confirmado con método de pago, responde solo: NO_PEDIDO\n\n"
+                f"Conversación:\n{contexto}\n\n"
+                "Si hay pedido confirmado responde SOLO este JSON sin nada más:\n"
+                '{"cedula":"...","nombre":"...","destino":"...","motonave":"...","items":"PRODUCTO|cantidad|precio;PRODUCTO2|cantidad2|precio2","observaciones":"TOTAL:valor"}\n'
+                "El precio de cada item: número unitario sin símbolos."
+            )}]
+        )
+        texto = respuesta.content[0].text.strip()
+        if "NO_PEDIDO" in texto or not texto.startswith("{"):
+            return None
+        return json.loads(texto)
+    except Exception as e:
+        print(f"Error plan B: {e}")
+        return None
+
+
 def procesar_con_claude(numero: str, mensaje_usuario: str) -> str:
     if numero not in conversaciones:
         conversaciones[numero] = []
@@ -564,10 +595,22 @@ def recibir_mensaje():
             return jsonify({"status": "ok"}), 200
 
         respuesta_claude = procesar_con_claude(numero, texto_cliente)
+
+        # ── Intentar extraer pedido del marcador (Plan A) ─────
         pedido = extraer_pedido_confirmado(respuesta_claude)
+
+        # ── Si no hay marcador, detectar si eligió método de pago (Plan B) ──
+        if not pedido:
+            metodos_pago = ["nequi", "bancolombia", "efectivo", "contado"]
+            mensaje_lower = texto_cliente.lower()
+            if any(m in mensaje_lower for m in metodos_pago):
+                print("⚡ Plan B activado: cliente eligió método de pago, extrayendo pedido del historial...")
+                pedido = extraer_pedido_del_historial(numero)
+
         if pedido:
             pedido["telefono"] = numero
             registrar_pedido_sheets(pedido)
+            print(f"✅ Pedido registrado para {pedido.get('nombre', 'cliente')}")
 
         enviar_whatsapp(numero, limpiar_respuesta(respuesta_claude))
         return jsonify({"status": "ok"}), 200
@@ -936,7 +979,25 @@ async function enviarAudio(){
 @app.route("/test", methods=["POST"])
 def test_bot():
     data = request.get_json()
-    respuesta = procesar_con_claude(data.get("numero", "test"), data.get("mensaje", ""))
+    numero = data.get("numero", "test")
+    mensaje = data.get("mensaje", "")
+    respuesta = procesar_con_claude(numero, mensaje)
+
+    # Plan A: marcador en la respuesta
+    pedido = extraer_pedido_confirmado(respuesta)
+
+    # Plan B: cliente eligió método de pago
+    if not pedido:
+        metodos_pago = ["nequi", "bancolombia", "efectivo", "contado"]
+        if any(m in mensaje.lower() for m in metodos_pago):
+            print("⚡ Plan B (web): extrayendo pedido del historial...")
+            pedido = extraer_pedido_del_historial(numero)
+
+    if pedido:
+        pedido["telefono"] = numero
+        registrar_pedido_sheets(pedido)
+        print(f"✅ Pedido web registrado: {pedido.get('nombre','?')}")
+
     return jsonify({"respuesta": limpiar_respuesta(respuesta)})
 
 
