@@ -38,8 +38,8 @@ catalogo_cache = []
 APODOS = {
     "pin pon polvo acido": "PIN PON MANGO VICHE",
     "pin pon acido": "PIN PON MANGO VICHE",
-    "ristra de ponky": "PONKY X8X24TIRA/VAINILLA",
-    "ristra ponky": "PONKY X8X24TIRA/VAINILLA",
+    "ristra de ponky": "PONKY X8 X24TIR/VAINILLA",
+    "ristra ponky": "PONKY X8 X24TIR/VAINILLA",
     "ristra de chupi won": "CHUPI WOM RISTRA X24X24",
     "ristra chupi won": "CHUPI WOM RISTRA X24X24",
     "chao 5 pepas": "CHAO LINEA",
@@ -85,8 +85,13 @@ APODOS = {
     "banana envuelta": "BANANA DULCE RELLENO AMERICANDY",
     "menta saborizada": "MENTA HELADA SURTIDA",
     "rosquilla picante": "RODELIS FLAMING",
-    "rulita x 24": "PAPITA X 24",
-    "rulita": "PAPITA X 24",
+    "rulita x 24": "PAPA RULITAS X24/LIMON",
+    "rulita": "PAPA RULITAS X24/LIMON",
+    "rulita limon": "PAPA RULITAS X24/LIMON",
+    "rulita morada": "PAPA RULITAS X24/MORADA",
+    "rulita roja": "PAPA RULITAS X24/ROJO",
+    "rulita pollo": "PAPA RULITAS X24/POLLO",
+    "rulita mayonesa": "PAPA RULITAS X24/MAYONESA",
     "papa salsa grande": "PAPITA GRANDE",
     "bonbom grande": "BIG BON X 48 UND",
     "confites surtidos": "BANANAS SURTIDAS X 100 UND",
@@ -156,6 +161,23 @@ Recibe el pedido en cualquier formato (texto, lista, voz o foto).
 - Convierte unidades usando la tabla de referencias
 - Si un producto no está claro pregunta al cliente
 - Ve anotando cada producto confirmado
+
+REGLA DE PRECIOS — MUY IMPORTANTE:
+NUNCA inventes ni supongas precios. El precio SIEMPRE debe venir del catálogo.
+Si no encuentras el producto exacto en el catálogo, di: "Déjame verificar ese producto" y usa $0 hasta confirmar.
+
+REGLA DE VARIANTES — MUY IMPORTANTE:
+Cuando el cliente pida un producto que tiene múltiples sabores o presentaciones, SIEMPRE pregunta cuál quiere antes de cotizar. Ejemplos:
+- "bon bon bum" → pregunta: "¿Qué sabor de Bon Bon Bum? Tenemos: Surtido, Rojo, Tropical, Cereza, Fresa, Zombie, Sandía, Manzana, Pink, Halloween"
+- "rulita" → pregunta: "¿Qué sabor de Rulita? Tenemos: Limón, Morada, Roja, Pollo, Mayonesa"
+- "ponky" → pregunta: "¿Cuál Ponky? Tenemos: Vainilla ($9.200), Frutos Rojos ($12.700), Torta Negra ($9.200)"
+
+UNIDADES DEL CATÁLOGO:
+- dsp = display (presentación por display)
+- ctn = cartón (caja de cartón)
+- und = unidad
+- lb = libra
+Cuando el cliente pida "una caja" de un producto que viene en "ctn", ese es el precio del cartón completo.
 
 DICCIONARIO DE APODOS:
 {json.dumps(APODOS, ensure_ascii=False, indent=2)}
