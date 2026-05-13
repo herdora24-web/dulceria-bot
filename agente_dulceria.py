@@ -215,15 +215,19 @@ Si elige efectivo:
 ════════════════════════════════════════
 PASO 5 — REGISTRO AUTOMÁTICO (CRÍTICO)
 ════════════════════════════════════════
-En el mismo mensaje donde confirmas el pedido y das los datos de pago, DEBES incluir obligatoriamente al final, en UNA SOLA LÍNEA, el siguiente marcador. SIN ESTE MARCADOR EL PEDIDO NO SE REGISTRA EN EL SISTEMA Y SE PIERDE:
+CUÁNDO incluir el marcador: en el mensaje donde le das al cliente los datos de pago (Nequi, Bancolombia o efectivo). Es decir, cuando el cliente elige su método de pago.
 
-##PEDIDO_CONFIRMADO##{{\"cedula\":\"CEDULA\",\"nombre\":\"NOMBRE\",\"telefono\":\"TELEFONO\",\"destino\":\"DESTINO\",\"motonave\":\"MOTONAVE\",\"items\":\"PRODUCTO1|CANTIDAD1|PRECIO1;PRODUCTO2|CANTIDAD2|PRECIO2\",\"observaciones\":\"TOTAL:TOTAL_PEDIDO\"}}##
+OBLIGATORIO: incluye al final de ese mensaje, en UNA SOLA LÍNEA, exactamente esto:
+
+##PEDIDO_CONFIRMADO##{{\"cedula\":\"CEDULA\",\"nombre\":\"NOMBRE\",\"telefono\":\"TELEFONO\",\"destino\":\"DESTINO\",\"motonave\":\"MOTONAVE\",\"items\":\"PRODUCTO1|CANTIDAD1|PRECIO1;PRODUCTO2|CANTIDAD2|PRECIO2\",\"observaciones\":\"TOTAL:VALOR_TOTAL\"}}##
 
 Reglas del campo items:
-- Productos separados por ;
+- Productos separados por punto y coma ;
 - Cada ítem: NOMBRE_EXACTO|cantidad|precioUnitario
-- Precio unitario: solo el número, sin $ ni puntos ni comas
-- Ejemplo: PONKY X8X24TIRA/VAINILLA|2|15000;BON BON BUM X 24|1|8500;PAPITA X 24|3|12000
+- Precio unitario: solo el número sin simbolos (ejemplo: 8500)
+- Ejemplo real: PONKY X8X24TIRA/VAINILLA|2|15000;BON BON BUM X 24|1|8500;PAPITA X 24|3|12000
+
+NUNCA omitas este marcador. Si no lo incluyes el pedido NO se registra.
 
 ════════════════════════════════════════
 FOTOS DE LISTAS
@@ -540,7 +544,21 @@ def recibir_mensaje():
                 enviar_whatsapp(numero, "No pude escuchar tu nota de voz 😅 ¿Puedes escribirlo?")
                 return jsonify({"status": "ok"}), 200
         elif tipo == "image":
-            texto_cliente = leer_imagen_lista(msg["image"]["id"])
+            # Detectar si es comprobante de pago o lista de productos
+            historial = conversaciones.get(numero, [])
+            ultimo_bot = ""
+            for m in reversed(historial):
+                if m["role"] == "assistant":
+                    ultimo_bot = m["content"].lower()
+                    break
+            es_comprobante = any(p in ultimo_bot for p in [
+                "comprobante", "transferencia", "nequi", "bancolombia",
+                "cuando me env", "enviame", "enviíame"
+            ])
+            if es_comprobante:
+                texto_cliente = "[El cliente envió el comprobante de pago. Agradece, confirma que lo recibiste y dile que su pedido ya está en proceso con tiempo de entrega de 2 a 3 horas.]"
+            else:
+                texto_cliente = leer_imagen_lista(msg["image"]["id"])
         else:
             enviar_whatsapp(numero, "Recibo texto, notas de voz y fotos de listas 📝")
             return jsonify({"status": "ok"}), 200
