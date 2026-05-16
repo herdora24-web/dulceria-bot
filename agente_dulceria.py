@@ -512,7 +512,8 @@ def formato_resumen(sesion: dict) -> str:
     lineas = []
     for i in items:
         subtotal = int(i["cantidad"] * i["precio"])
-        lineas.append(f"✅ {i['nombre']} — {int(i['cantidad'])} {i.get('unidad','und')} — ${i['precio']:,} c/u — *${subtotal:,}*")
+        precio_u = int(i["precio"]) if i["precio"] == int(i["precio"]) else i["precio"]
+        lineas.append(f"✅ {i['nombre']} — {int(i['cantidad'])} {i.get('unidad','und')} — ${precio_u:,} c/u — *${subtotal:,}*")
     total = calcular_total(items)
     resumen = "\n".join(lineas)
     advertencia = ""
@@ -617,10 +618,19 @@ def procesar_estado_identificacion(sesion: dict, texto: str) -> str:
 
 
 def procesar_estado_tomando_pedido(sesion: dict, texto: str) -> str:
-    # Palabras clave que indican que el cliente quiere cerrar el pedido
-    palabras_cierre = ["eso es todo", "es todo", "listo", "eso seria todo", "nada mas",
-                       "ya es todo", "con eso", "finalizar", "confirmar", "terminar"]
-    if any(p in texto.lower() for p in palabras_cierre) and sesion["items"]:
+    texto_lower = texto.lower().strip()
+    # Palabras que indican cierre del pedido
+    palabras_cierre = ["eso es todo", "es todo", "eso seria todo", "nada mas", "nada más",
+                       "ya es todo", "con eso", "finalizar", "terminar", "ya no", "eso nomas",
+                       "sí confirmo", "si confirmo", "confirmo", "confirmar pedido",
+                       "listo con eso", "es todo lo que necesito"]
+    # También: si dice solo "listo" o "si" y ya hay items
+    palabras_simple = ["listo", "sí", "si", "dale", "ok", "okay", "perfecto"]
+    
+    cierre = any(p in texto_lower for p in palabras_cierre)
+    cierre_simple = texto_lower in palabras_simple
+    
+    if (cierre or cierre_simple) and sesion["items"]:
         sesion["estado"] = "confirmando"
         return formato_resumen(sesion)
 
@@ -647,7 +657,8 @@ def procesar_estado_tomando_pedido(sesion: dict, texto: str) -> str:
             "codigo": codigo,
             "unidad": unidad
         })
-        productos_agregados.append(f"✅ {nombre} x{cantidad} — ${precio:,}")
+        precio_fmt = f"${int(precio):,}" if precio == int(precio) else f"${precio:,.0f}"
+        productos_agregados.append(f"✅ {nombre} x{cantidad} — {precio_fmt}")
 
     # Productos con variantes — preguntar sabor
     preguntas_variante = []
