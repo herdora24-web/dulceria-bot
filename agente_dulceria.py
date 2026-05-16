@@ -169,6 +169,24 @@ def cargar_catalogo():
         catalogo_cache = []
 
 
+def limpiar_precio(valor) -> float:
+    """Convierte precio en cualquier formato a float."""
+    try:
+        s = str(valor).strip().replace("$", "").replace(" ", "")
+        # Si tiene coma y punto: 1.234,56 → separador miles=punto, decimal=coma
+        if "," in s and "." in s:
+            s = s.replace(".", "").replace(",", ".")
+        # Si solo tiene coma: 9,200 → separador miles
+        elif "," in s:
+            s = s.replace(",", "")
+        # Si solo tiene punto y más de 2 decimales: 9.200 → miles
+        elif "." in s and len(s.split(".")[-1]) == 3:
+            s = s.replace(".", "")
+        return float(s) if s else 0.0
+    except:
+        return 0.0
+
+
 def buscar_producto(nombre_buscado: str) -> dict | None:
     nombre_buscado = nombre_buscado.upper().strip()
     for prod in catalogo_cache:
@@ -177,6 +195,13 @@ def buscar_producto(nombre_buscado: str) -> dict | None:
     for prod in catalogo_cache:
         if nombre_buscado in prod.get("NOMBRE", "").upper():
             return prod
+    # Búsqueda por palabras clave individuales
+    palabras = [p for p in nombre_buscado.split() if len(p) > 3]
+    if palabras:
+        for prod in catalogo_cache:
+            nombre_prod = prod.get("NOMBRE", "").upper()
+            if all(p in nombre_prod for p in palabras):
+                return prod
     return None
 
 
@@ -608,7 +633,7 @@ def procesar_estado_tomando_pedido(sesion: dict, texto: str) -> str:
         cantidad = prod.get("cantidad", 1)
         # Buscar en catálogo
         encontrado = buscar_producto(nombre)
-        precio = float(encontrado["PRECIO"]) if encontrado else 0
+        precio = limpiar_precio(encontrado["PRECIO"]) if encontrado else 0
         codigo = str(encontrado.get("CODIGO_BARRAS", "")) if encontrado else ""
         unidad = encontrado.get("UNIDAD", "und") if encontrado else "und"
 
