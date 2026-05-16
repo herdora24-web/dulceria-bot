@@ -503,8 +503,49 @@ def formato_resumen(sesion: dict) -> str:
 ¿Confirmas este pedido? ✅"""
 
 
+def extraer_datos_regex(texto: str) -> dict:
+    """Extracción rápida con regex como respaldo a Claude."""
+    datos = {"cedula": "", "nombre": "", "destino": "", "motonave": ""}
+    texto_lower = texto.lower()
+
+    # Cédula: número de 6-10 dígitos
+    cedula_match = re.search(r'\b(\d{6,10})\b', texto)
+    if cedula_match:
+        datos["cedula"] = cedula_match.group(1)
+
+    # Destino: después de "destino" o "para"
+    dest_match = re.search(r'(?:destino|para|voy a|va a|hacia)\s*:?\s*([a-záéíóúñ\s]+?)(?:,|motonave|barco|$)', texto_lower)
+    if dest_match:
+        datos["destino"] = dest_match.group(1).strip().title()
+
+    # Motonave: después de "motonave" o "barco" o "lancha"
+    moto_match = re.search(r'(?:motonave|barco|lancha|nave)\s*:?\s*([a-záéíóúñ\s]+?)(?:,|$)', texto_lower)
+    if moto_match:
+        datos["motonave"] = moto_match.group(1).strip().title()
+
+    return datos
+
+
 def procesar_estado_identificacion(sesion: dict, texto: str) -> str:
+    # Saludo inicial — no intentar extraer datos
+    if texto.lower().strip() in ["hola", "buenas", "buenos días", "buenas tardes", "buenas noches", "hi", "hey"]:
+        return ("¡Bienvenido a Distribuidora Alejandra María! 👋\n"
+                "Para atenderte necesito:\n"
+                "1️⃣ Número de cédula\n"
+                "2️⃣ Nombre completo\n"
+                "3️⃣ Destino (municipio o corregimiento)\n"
+                "4️⃣ Motonave o barco\n\n"
+                "¡Con esos datos tomamos tu pedido! 📦")
+
+    # Intentar extraer con Claude
     datos = claude_extraer_identificacion(texto)
+    print(f"Datos extraídos por Claude: {datos}")
+
+    # Respaldo con regex si Claude falla
+    if not datos or not any(datos.values()):
+        datos = extraer_datos_regex(texto)
+        print(f"Datos extraídos por regex: {datos}")
+
     if datos:
         if datos.get("cedula"): sesion["cedula"] = datos["cedula"]
         if datos.get("nombre"): sesion["nombre"] = datos["nombre"]
@@ -517,15 +558,10 @@ def procesar_estado_identificacion(sesion: dict, texto: str) -> str:
     if not sesion["destino"]: faltan.append("destino")
     if not sesion["motonave"]: faltan.append("motonave o barco")
 
+    print(f"Sesión actual: {sesion}")
+    print(f"Faltan: {faltan}")
+
     if faltan:
-        if len(faltan) == 4:
-            return ("¡Bienvenido a Distribuidora Alejandra María! 👋\n"
-                    "Para atenderte necesito:\n"
-                    "1️⃣ Número de cédula\n"
-                    "2️⃣ Nombre completo\n"
-                    "3️⃣ Destino (municipio o corregimiento)\n"
-                    "4️⃣ Motonave o barco\n\n"
-                    "¡Con esos datos tomamos tu pedido! 📦")
         return f"Gracias, me falta: *{', '.join(faltan)}*. ¿Me los compartes?"
 
     sesion["estado"] = "tomando_pedido"
