@@ -929,6 +929,38 @@ def transcribir_audio(audio_id: str) -> str | None:
         return None
 
 
+def leer_imagen_base64(base64_data: str) -> str:
+    """Lee una lista de productos desde imagen en base64 (usado en pruebas web)."""
+    try:
+        # Extraer el tipo y datos del data URL
+        if "," in base64_data:
+            header, data = base64_data.split(",", 1)
+            media_type = header.split(":")[1].split(";")[0]
+        else:
+            data = base64_data
+            media_type = "image/jpeg"
+
+        response = claude_client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=1000,
+            messages=[{"role": "user", "content": [
+                {"type": "image", "source": {
+                    "type": "base64", "media_type": media_type, "data": data
+                }},
+                {"type": "text", "text": (
+                    "Esta es una lista de pedido de una distribuidora de dulcería en Colombia (Buenaventura). "
+                    "Lee TODOS los productos con sus cantidades exactamente como aparecen, uno por línea. "
+                    "Formato: CANTIDAD PRODUCTO. Si hay texto ilegible escribe [ilegible]. "
+                    "Solo devuelve la lista, sin comentarios ni encabezados."
+                )}
+            ]}]
+        )
+        return response.content[0].text
+    except Exception as e:
+        print(f"Error leyendo imagen base64: {e}")
+        return ""
+
+
 def leer_imagen_lista(image_id: str) -> str:
     try:
         token = os.environ.get("WHATSAPP_TOKEN")
@@ -1251,13 +1283,29 @@ async function enviarAlBot(mensaje, esImagenBot=false){
   }
 }
 
+async function enviarAlBotConImagen(base64){
+  setTyping(true);
+  try{
+    const resp=await fetch("/test",{method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({numero, mensaje:"[imagen]", es_imagen:true, imagen_base64:base64})});
+    const data=await resp.json();
+    setTyping(false);
+    agregar(data.respuesta,"bot");
+    if(data.estado) actualizarBadge(data.estado);
+  }catch(e){
+    setTyping(false);
+    agregar("Error de conexión. Intenta de nuevo.","bot");
+  }
+}
+
 async function enviar(){
   const input=document.getElementById("msg");
   const texto=input.value.trim();
   if(fotoBase64){
     agregar(fotoBase64,"user",true);
     input.value=""; input.style.height='auto';
-    await enviarAlBot("[imagen enviada por el cliente]", true);
+    await enviarAlBotConImagen(fotoBase64);
     quitarFoto(); return;
   }
   if(!texto) return;
@@ -1332,7 +1380,24 @@ def test_bot():
     numero = data.get("numero", "test")
     mensaje = data.get("mensaje", "")
     es_imagen = data.get("es_imagen", False)
-    respuesta = procesar_mensaje(numero, mensaje, es_imagen, numero)
+    imagen_base64 = data.get("imagen_base64", "")
+
+    # Si hay imagen base64, procesarla con Claude Vision directamente
+    if es_imagen and imagen_base64:
+        sesion = get_sesion(numero)
+        if sesion["estado"] in ["esperando_comprobante", "pendiente_aprobacion"]:
+            # Tratar como comprobante (sin image_id real en pruebas)
+            respuesta = procesar_estado_esperando_comprobante(sesion, True, mensaje, numero, "")
+        else:
+            # Leer como lista de productos
+            texto_lista = leer_imagen_base64(imagen_base64)
+            if texto_lista:
+                respuesta = procesar_mensaje(numero, texto_lista, False, numero)
+            else:
+                respuesta = "No pude leer la imagen. ¿Puedes escribir la lista? 😊"
+    else:
+        respuesta = procesar_mensaje(numero, mensaje, es_imagen, numero)
+
     sesion = get_sesion(numero)
     return jsonify({"respuesta": respuesta, "estado": sesion["estado"]})
 
