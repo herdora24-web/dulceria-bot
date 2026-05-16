@@ -617,22 +617,56 @@ def procesar_estado_identificacion(sesion: dict, texto: str) -> str:
             f"Puedes escribir la lista, enviar audio o foto. ¡Yo me encargo! 🛒")
 
 
+def detectar_intencion_cliente(texto: str, tiene_items: bool) -> str:
+    """
+    Usa Claude para detectar qué quiere el cliente.
+    Retorna: "agregar_productos" | "cerrar_pedido" | "consulta_precio" | "modificar"
+    """
+    if not tiene_items:
+        return "agregar_productos"
+    try:
+        resp = claude_client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=50,
+            messages=[{"role": "user", "content": f"""
+Un cliente de una distribuidora de dulcería en Colombia está haciendo un pedido por WhatsApp.
+Ya tiene productos en su pedido. Ahora dice: "{texto}"
+
+¿Qué quiere hacer? Responde SOLO una de estas opciones exactas:
+- agregar_productos (quiere añadir más cosas al pedido)
+- cerrar_pedido (quiere terminar, ver el total, confirmar, ya no quiere más)
+- modificar (quiere cambiar o quitar algo del pedido)
+
+Ejemplos de cerrar_pedido: "solo eso", "cuánto sería", "eso es todo", "listo", 
+"cuánto me sale", "ya terminé", "nada más", "con eso está bien", "cuánto es",
+"sí confirmo", "dale", "okay", "perfecto", "solo eso cuánto sería"
+
+Responde solo la opción, sin puntos ni explicaciones.
+"""}]
+        )
+        intencion = resp.content[0].text.strip().lower()
+        print(f"Intención detectada: '{intencion}' para: '{texto}'")
+        if "cerrar" in intencion:
+            return "cerrar_pedido"
+        elif "modificar" in intencion:
+            return "modificar"
+        return "agregar_productos"
+    except Exception as e:
+        print(f"Error detectando intención: {e}")
+        return "agregar_productos"
+
+
 def procesar_estado_tomando_pedido(sesion: dict, texto: str) -> str:
-    texto_lower = texto.lower().strip()
-    # Palabras que indican cierre del pedido
-    palabras_cierre = ["eso es todo", "es todo", "eso seria todo", "nada mas", "nada más",
-                       "ya es todo", "con eso", "finalizar", "terminar", "ya no", "eso nomas",
-                       "sí confirmo", "si confirmo", "confirmo", "confirmar pedido",
-                       "listo con eso", "es todo lo que necesito"]
-    # También: si dice solo "listo" o "si" y ya hay items
-    palabras_simple = ["listo", "sí", "si", "dale", "ok", "okay", "perfecto"]
-    
-    cierre = any(p in texto_lower for p in palabras_cierre)
-    cierre_simple = texto_lower in palabras_simple
-    
-    if (cierre or cierre_simple) and sesion["items"]:
+    # Detectar intención del cliente con Claude
+    intencion = detectar_intencion_cliente(texto, bool(sesion["items"]))
+
+    if intencion == "cerrar_pedido" and sesion["items"]:
         sesion["estado"] = "confirmando"
         return formato_resumen(sesion)
+
+    if intencion == "modificar":
+        return ("Claro, dime qué quieres cambiar 📝\n"
+                "¿Quieres quitar algún producto, cambiar la cantidad o agregar algo diferente?")
 
     resultado = claude_extraer_productos(texto, sesion["items"])
 
@@ -693,34 +727,85 @@ def procesar_estado_tomando_pedido(sesion: dict, texto: str) -> str:
     return "¿Qué más necesitas agregar? 😊"
 
 
+def detectar_confirmacion(texto: str) -> str:
+    """Detecta si el cliente confirma, rechaza o pregunta algo. Retorna: confirma | rechaza | pregunta"""
+    try:
+        resp = claude_client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=20,
+            messages=[{"role": "user", "content": f"""
+El cliente acaba de ver el resumen de su pedido con precios y dice: "{texto}"
+¿Qué responde? Solo una opción:
+- confirma (acepta el pedido tal como está)
+- rechaza (quiere cambiar, quitar o agregar algo)
+- pregunta (tiene una duda o pregunta algo)
+Responde solo la palabra.
+"""}]
+        )
+        resp_text = resp.content[0].text.strip().lower()
+        if "confirma" in resp_text: return "confirma"
+        if "rechaza" in resp_text: return "rechaza"
+        return "pregunta"
+    except:
+        return "pregunta"
+
+
 def procesar_estado_confirmando(sesion: dict, texto: str) -> str:
-    afirmaciones = ["si", "sí", "dale", "listo", "confirmo", "correcto", "ok",
-                    "okay", "perfecto", "bueno", "claro", "adelante"]
-    negaciones = ["no", "corregir", "cambiar", "modificar", "quitar", "agregar"]
+    accion = detectar_confirmacion(texto)
+    print(f"Confirmación detectada: '{accion}' para: '{texto}'")
 
-    texto_lower = texto.lower().strip()
-
-    if any(n in texto_lower for n in negaciones):
+    if accion == "rechaza":
         sesion["estado"] = "tomando_pedido"
-        return ("Claro, dime qué quieres cambiar o agregar al pedido. 📝\n"
-                "Puedes decirme qué quitar, agregar o modificar.")
+        return ("Claro, dime qué quieres cambiar 📝\n"
+                "¿Quieres quitar algo, cambiar cantidades o agregar más productos?")
 
-    if any(a in texto_lower for a in afirmaciones):
+    if accion == "confirma":
         sesion["estado"] = "eligiendo_pago"
         return ("¡Perfecto! ¿Cómo vas a realizar el pago?\n\n"
                 "1️⃣ Nequi\n"
                 "2️⃣ Bancolombia\n"
                 "3️⃣ Efectivo contra entrega")
 
-    # Si no entiende, mostrar resumen de nuevo
-    return formato_resumen(sesion) + "\n\n¿Confirmas con *sí* o necesitas modificar algo?"
+    # Si tiene una pregunta, responderla con contexto
+    total = calcular_total(sesion["items"])
+    if any(p in texto.lower() for p in ["cuánto", "cuanto", "precio", "total", "vale", "cuesta"]):
+        return (f"El total de tu pedido es *${total:,}* 💰\n\n"
+                f"¿Confirmas el pedido? ✅")
+
+    return formato_resumen(sesion) + "\n\n¿Lo confirmamos? ✅"
+
+
+def detectar_metodo_pago(texto: str) -> str:
+    """Detecta método de pago. Retorna: nequi | bancolombia | efectivo | ninguno"""
+    try:
+        resp = claude_client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=20,
+            messages=[{"role": "user", "content": f"""
+El cliente debe elegir cómo pagar su pedido y dice: "{texto}"
+¿Qué método eligió? Solo una opción:
+- nequi
+- bancolombia
+- efectivo
+- ninguno (no queda claro)
+Responde solo la palabra.
+"""}]
+        )
+        metodo = resp.content[0].text.strip().lower()
+        for m in ["nequi", "bancolombia", "efectivo"]:
+            if m in metodo:
+                return m
+        return "ninguno"
+    except:
+        return "ninguno"
 
 
 def procesar_estado_eligiendo_pago(sesion: dict, texto: str, telefono: str) -> str:
-    texto_lower = texto.lower().strip()
+    metodo = detectar_metodo_pago(texto)
+    print(f"Método de pago detectado: '{metodo}' para: '{texto}'")
     total = calcular_total(sesion["items"])
 
-    if "nequi" in texto_lower:
+    if metodo == "nequi":
         sesion["metodo_pago"] = "Nequi"
         sesion["estado"] = "esperando_comprobante"
         registrar_en_sheets(sesion, telefono)
@@ -731,7 +816,7 @@ def procesar_estado_eligiendo_pago(sesion: dict, texto: str, telefono: str) -> s
                 f"Cuando realices el pago envíame el comprobante 📸 y procesamos tu pedido.\n"
                 f"⏰ Tiempo de entrega: 2 a 3 horas.")
 
-    elif "bancolombia" in texto_lower or "banco" in texto_lower:
+    elif metodo == "bancolombia":
         sesion["metodo_pago"] = "Bancolombia"
         sesion["estado"] = "esperando_comprobante"
         registrar_en_sheets(sesion, telefono)
@@ -742,7 +827,7 @@ def procesar_estado_eligiendo_pago(sesion: dict, texto: str, telefono: str) -> s
                 f"Cuando realices el pago envíame el comprobante 📸 y procesamos tu pedido.\n"
                 f"⏰ Tiempo de entrega: 2 a 3 horas.")
 
-    elif "efectivo" in texto_lower or "contado" in texto_lower or "cash" in texto_lower:
+    elif metodo == "efectivo":
         sesion["metodo_pago"] = "Efectivo"
         sesion["estado"] = "cerrado"
         registrar_en_sheets(sesion, telefono)
