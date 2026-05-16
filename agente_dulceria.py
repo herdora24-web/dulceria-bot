@@ -504,25 +504,44 @@ def formato_resumen(sesion: dict) -> str:
 
 
 def extraer_datos_regex(texto: str) -> dict:
-    """Extracción rápida con regex como respaldo a Claude."""
+    """Extracción robusta de datos del cliente."""
     datos = {"cedula": "", "nombre": "", "destino": "", "motonave": ""}
     texto_lower = texto.lower()
 
-    # Cédula: número de 6-10 dígitos
-    cedula_match = re.search(r'\b(\d{6,10})\b', texto)
-    if cedula_match:
-        datos["cedula"] = cedula_match.group(1)
+    # ── Método 1: formato por comas (más común) ───────────────
+    # Ej: "12345678, Pedro Pérez, Juanchaco, motonave San José"
+    partes = [p.strip() for p in texto.split(",")]
+    if len(partes) >= 2:
+        # Primera parte con solo dígitos = cédula
+        if re.match(r"^\d{6,12}$", partes[0]):
+            datos["cedula"] = partes[0]
+            if len(partes) >= 2:
+                datos["nombre"] = partes[1].strip().title()
+            if len(partes) >= 3:
+                dest = partes[2].strip()
+                dest = re.sub(r"(?i)destino:?\s*", "", dest).strip()
+                datos["destino"] = dest.title()
+            if len(partes) >= 4:
+                moto = partes[3].strip()
+                moto = re.sub(r"(?i)(motonave|barco|lancha|nave):?\s*", "", moto).strip()
+                datos["motonave"] = moto.title()
+            print(f"Extraído por comas: {datos}")
+            return datos
 
-    # Destino: después de "destino" o "para"
-    dest_match = re.search(r'(?:destino|para|voy a|va a|hacia)\s*:?\s*([a-záéíóúñ\s]+?)(?:,|motonave|barco|$)', texto_lower)
-    if dest_match:
-        datos["destino"] = dest_match.group(1).strip().title()
+    # ── Método 2: regex por palabras clave ────────────────────
+    cedula_m = re.search(r"\b(\d{6,12})\b", texto)
+    if cedula_m:
+        datos["cedula"] = cedula_m.group(1)
 
-    # Motonave: después de "motonave" o "barco" o "lancha"
-    moto_match = re.search(r'(?:motonave|barco|lancha|nave)\s*:?\s*([a-záéíóúñ\s]+?)(?:,|$)', texto_lower)
-    if moto_match:
-        datos["motonave"] = moto_match.group(1).strip().title()
+    moto_m = re.search(r"(?i)(?:motonave|barco|lancha|nave)\s*:?\s*([\w\sáéíóúñ]+?)(?:,|$)", texto)
+    if moto_m:
+        datos["motonave"] = moto_m.group(1).strip().title()
 
+    dest_m = re.search(r"(?i)(?:destino|para|hacia|a)\s*:?\s*([\w\sáéíóúñ]+?)(?:,|motonave|barco|$)", texto)
+    if dest_m:
+        datos["destino"] = dest_m.group(1).strip().title()
+
+    print(f"Extraído por regex: {datos}")
     return datos
 
 
